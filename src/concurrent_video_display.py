@@ -8,6 +8,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import cv2
 import numpy as np
 
+from src.hand_detector import HandDetector
+
 
 def _detect_backend() -> int:
     if sys.platform.startswith("win"):
@@ -45,6 +47,9 @@ class ConcurrentVideoCaptureDisplay:
         self._latest_frame: np.ndarray | None = None
         self._actual_width: int = 0
         self._actual_height: int = 0
+
+        self._enable_hand_detector = True
+        self.hand_detector = HandDetector()
 
     def _configure_capture_mode(self) -> None:
         """설정된 해상도로 카메라를 구성하기. 단, None이면 원본 해상도를 유지한 후 실제 적용된 해상도를 저장한다."""
@@ -109,6 +114,11 @@ class ConcurrentVideoCaptureDisplay:
                 pass
             self._capture = None
 
+        try:
+            self.hand_detector.close()
+        except Exception:
+            pass
+
         if self._executor is not None:
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
@@ -145,12 +155,21 @@ class ConcurrentVideoCaptureDisplay:
             if frame is not None:
                 if self.mirror:
                     frame = cv2.flip(frame, 1)
+
+                # 손 감지하여 frame에 반영
+                if self._enable_hand_detector:
+                    self.hand_detector.detect_from_frame(frame)
+
                 cv2.imshow(self.window_name, frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key in (27, ord("q")):
+            if key == 27:  # ESC
                 self.stop()
                 break
+            if key == 13:  # ENTER
+                self._enable_hand_detector = not self._enable_hand_detector
+                if not self._enable_hand_detector:
+                    self.hand_detector.reset_state()
 
             try:
                 if cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE) < 1:
